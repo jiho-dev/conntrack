@@ -9,6 +9,7 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/ti-mo/netfilter v0.3.1
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc
-	golang.org/x/net v0.0.0-20201016165138-7b1cca2348c0 // indirect
-	golang.org/x/sys v0.0.0-20201017003518-b09fb700fbb7
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a
+	golang.org/x/xerrors v0.0.0-20220517211312-f3a8303e98df // indirect
 )

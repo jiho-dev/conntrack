@@ -1,15 +1,16 @@
 package conntrack_test
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/mdlayher/netlink"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
 )
@@ -31,6 +32,138 @@ func TestConnBufferSizes(t *testing.T) {
 	assert.NoError(t, c.SetWriteBuffer(256))
 
 	require.NoError(t, c.Close(), "closing conn")
+}
+
+/*
+ 40 static void replace_u32(u32 *address, u32 mask, u32 new)
+ 41 {
+ 42     u32 old, tmp;
+ 43
+ 44     do {
+ 45         old = *address;
+ 46         tmp = (old & mask) ^ new;
+ 47     } while (cmpxchg(address, old, tmp) != old);
+ 48 }
+*/
+
+func ReplaceLabel(address *uint32, mask uint32, new uint32) {
+	old := *address
+	tmp := (old & mask)
+	fmt.Printf("### tmp: 0x%x \n", tmp)
+
+	tmp = tmp ^ new
+	fmt.Printf("### tmp: 0x%x \n", tmp)
+	*address = tmp
+}
+
+func TestReplace(t *testing.T) {
+	var value, mask, new uint32
+
+	value = 0x3311
+	mask = 0x00ff
+	//mask = 0x0022
+	new = 0x0022
+
+	fmt.Printf("value: 0x%x, mask: 0x%04x, new: 0x%04x \n", value, mask, new)
+	r := ^mask
+	fmt.Printf("reverse mask: 0x%x \n", r)
+
+	ReplaceLabel(&value, ^mask, new)
+
+	fmt.Printf("value=0x%x, mask=0x%x, new=0x%x \n", value, mask, new)
+}
+
+func TestLabel(t *testing.T) {
+	// Open a Conntrack connection.
+	c, err := conntrack.Dial(nil)
+	if err != nil {
+		log.Fatalf("1. %s", err)
+	}
+
+	// Dump all records in the Conntrack table that match the filter's mark/mask.
+	df, err := c.Dump()
+	if err != nil {
+		log.Fatalf("2. %s", err)
+	}
+
+	var uf conntrack.Flow
+	var found bool
+
+	for i, f := range df {
+		if f.TupleOrig.Proto.Protocol == 6 &&
+			f.TupleOrig.IP.DestinationAddress.String() == "3.34.102.120" &&
+			f.TupleOrig.Proto.DestinationPort == 22 {
+			uf = f
+			fmt.Printf("### 1. %d: flow:%+v \n", i, f)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		fmt.Printf("### 2. not selected flow \n")
+	}
+
+	fmt.Printf("### 2. selected flow:%+v \n", uf)
+
+	// get a single flow
+	// Set up a new Flow object using a given set of attributes.
+	src := uf.TupleOrig.IP.SourceAddress.String()
+	dst := uf.TupleOrig.IP.DestinationAddress.String()
+	mark := uint32(1111)
+
+	timestamp := uint32(time.Now().Unix())
+	fmt.Printf("%d \n", timestamp)
+
+	f := conntrack.NewFlow(
+		uf.TupleOrig.Proto.Protocol,
+		0,
+		net.ParseIP(src),
+		net.ParseIP(dst),
+		uf.TupleOrig.Proto.SourcePort,
+		uf.TupleOrig.Proto.DestinationPort,
+		0,
+		mark)
+
+	f.TupleOrig.Proto.ICMPv4 = uf.TupleOrig.Proto.ICMPv4
+	f.TupleOrig.Proto.ICMPID = uf.TupleOrig.Proto.ICMPID
+	f.TupleOrig.Proto.ICMPType = uf.TupleOrig.Proto.ICMPType
+
+	//////////////////////
+	// update label
+
+	f.Labels = make([]byte, 16)
+	f.LabelsMask = make([]byte, 16)
+
+	binary.BigEndian.PutUint32(f.Labels[0:4], timestamp)
+	binary.BigEndian.PutUint32(f.LabelsMask[0:4], ^uint32(0))
+
+	if false {
+		f.Labels[10] = 99
+		f.Labels[11] = 88
+		f.LabelsMask[10] = 0xff
+		f.LabelsMask[11] = 0xff
+	}
+
+	fmt.Printf("### 3. Labels: %+v \n", f.Labels)
+	fmt.Printf("### 3.   mask: %+v \n", f.LabelsMask)
+
+	// update
+	err = c.Update(f)
+	if err != nil {
+		log.Fatalf("3. %s", err)
+	}
+
+	////////////////////////
+
+	// Query the kernel based on the Flow's source/destination tuples.
+	// Returns a new Flow object with its connection ID assigned by the kernel.
+	qf, err := c.Get(f)
+	if err != nil {
+		log.Fatalf("4. %s", err)
+	}
+
+	fmt.Printf("### 3. get flow:%+v \n", qf)
 }
 
 func ExampleConn_createUpdateFlow() {

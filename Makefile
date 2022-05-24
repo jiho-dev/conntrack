@@ -14,7 +14,9 @@ generate:
 
 .PHONY: test
 test:
-	go test -race ./...
+#	go test -race ./...
+	sudo /usr/local/go/bin/go test -v -run TestLabel
+#	sudo /usr/local/go/bin/go test -v -run TestReplace
 
 .PHONY: testv
 testv:
