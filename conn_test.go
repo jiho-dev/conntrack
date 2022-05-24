@@ -81,7 +81,7 @@ func TestLabel(t *testing.T) {
 	}
 
 	// Dump all records in the Conntrack table that match the filter's mark/mask.
-	df, err := c.Dump()
+	df, err := c.Dump(nil)
 	if err != nil {
 		log.Fatalf("2. %s", err)
 	}
